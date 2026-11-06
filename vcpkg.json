@@ -1,0 +1,13 @@
+{
+  "name": "one-man-restaurant",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "glfw3",
+    "glm",
+    "assimp",
+    {
+      "name": "glad",
+      "features": ["gl-api-33"]
+    }
+  ]
+}
