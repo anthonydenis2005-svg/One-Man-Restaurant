@@ -6,3 +6,5 @@ out/
 *.exe
 *.obj
 *.o
+vcpkg_installed/
+CMakeUserPresets.json
