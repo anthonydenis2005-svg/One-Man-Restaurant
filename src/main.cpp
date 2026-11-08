@@ -48,6 +48,29 @@ struct CameraState {
     double lastMouseX = 0.0;
     double lastMouseY = 0.0;
 };
+// Adding game state structure
+struct GameState {
+
+	int currentDay = 1;                 // set to one for now but we will change this when the difficulty increases in the future
+    float shiftTimer = 180.0f;          // for now we will have a 3-minute "shift" (180 seconds)
+	float customerHappiness = 100.0f;   // Starts at 100% going down over time or due to mistakes
+
+    // Paperwork event state and individual task flags (for next features Phase2 :> to be advanced)
+    bool paperworkActive = false;
+    float paperworkTimer = 0.0f;
+    float paperworkDuration = 0.0f;
+	bool payrollCompleted = true;      // Starts true so menu is hidden initially and doesnt start immediately with a penalty
+    bool safetyCheckCompleted = true;
+    bool inventoryChecked = true;
+
+    // Alarm state & timer for random triggers
+    bool alarmActive = false;
+    float alarmTimer = 0.0f;
+    float alarmDuration = 0.0f;         // Tracks how long current alarm has been active so we can penalize satisfaction state
+    bool gameOver = false;
+    float timeSinceLastPaperworkWarning = 0.0f;
+};
+
 
 void onMouseButton(GLFWwindow* window, int button, int action, int) {
     if (button != GLFW_MOUSE_BUTTON_MIDDLE) {
@@ -308,6 +331,15 @@ bool loadOfficeModel(
 
     return !parts.empty();
 }
+// Helper function to manage customer happiness drain and game over state <3
+void applyHappinessPenalty(GameState& state, float deltaTime, float drainRate) {
+    state.customerHappiness -= drainRate * deltaTime;
+    if (state.customerHappiness <= 0.0f) {
+        state.customerHappiness = 0.0f;
+        state.gameOver = true;
+        std::cout << "[GAME OVER] Customer happiness dropped to 0%! Restaurant failed.\n";
+    }
+}
 
 } // namespace
 
@@ -422,11 +454,100 @@ int main() {
     std::cout << "Hold middle mouse and drag to rotate. "
                  "Scroll to zoom. Esc to exit.\n";
 
+	// Initializing the game state and for the time tracking before the main loop
+    GameState gameState;
+    double lastTime = glfwGetTime();
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
+
+		// --- FEATURE #1:Update delata time and shift timer
+        double currentTime = glfwGetTime();
+        float deltaTime = static_cast<float>(currentTime - lastTime);
+        lastTime = currentTime;
+
+        if (!gameState.gameOver) {
+            if (gameState.shiftTimer > 0.0f) {
+                gameState.shiftTimer -= deltaTime;
+                if (gameState.shiftTimer <= 0.0f) {
+                    gameState.shiftTimer = 0.0f;
+                    std::cout << "[VICTORY] Shift completed successfully!\n";
+                }
+            }
+
+            // --- FEATURE #1:Random alamr trigger and key resolution using "E"
+            gameState.alarmTimer += deltaTime;
+            if (!gameState.alarmActive && gameState.alarmTimer > 15.0f) {
+                if (static_cast<int>(currentTime) % 2 == 0) {
+                    gameState.alarmActive = true;
+                    gameState.alarmDuration = 0.0f; // Reset duration when new alarm hits
+                    std::cout << "[ALARM] Fire alarm triggered! Press 'E' to turn it off.\n"; //until we get the button we will just be pressing E :3
+                }
+                gameState.alarmTimer = 0.0f;
+            }
+
+            // --- RANDOM PAPERWORK EVENT TRIGGER (ADDED) ---
+            gameState.paperworkTimer += deltaTime;
+            // Will trigger a new paperwork batch roughly every 22 seconds if no active paperwork is pending
+            if (!gameState.paperworkActive && gameState.paperworkTimer > 22.0f) {
+                gameState.paperworkActive = true;
+                gameState.paperworkDuration = 0.0f;
+                gameState.payrollCompleted = false;
+                gameState.safetyCheckCompleted = false;
+                gameState.inventoryChecked = false;
+                gameState.paperworkTimer = 0.0f;
+                std::cout << "[PAPERWORK] New paperwork tasks arrived! Press 1, 2, and 3 to clear them.\n";
+            }
+
+            // --- FEATURE #2: PAPERWORK CHECKBOX INPUT LOGIC ---
+            if (gameState.paperworkActive) {
+
+                gameState.paperworkDuration += deltaTime;
+                if (gameState.paperworkDuration > 10.0f) {
+                    applyHappinessPenalty(gameState, deltaTime, 1.5f); // Drains 1.5% happiness per second
+                }
+
+                if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+                    if (!gameState.payrollCompleted) {
+                        gameState.payrollCompleted = true;
+                        std::cout << "[PAPERWORK] Employee Payroll completed!\n";
+                    }
+                }
+                if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+                    if (!gameState.safetyCheckCompleted) {
+                        gameState.safetyCheckCompleted = true;
+                        std::cout << "[PAPERWORK] Safety Check completed!\n";
+                    }
+                }
+                if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+                    if (!gameState.inventoryChecked) {
+                        gameState.inventoryChecked = true;
+                        std::cout << "[PAPERWORK] Inventory Check completed!\n";
+                    }
+                }
+                if (gameState.payrollCompleted && gameState.safetyCheckCompleted && gameState.inventoryChecked) {
+                    gameState.paperworkActive = false;
+                    std::cout << "[PAPERWORK] All tasks completed successfully! Task cleared.\n";
+                }
+            }
+
+            // If alarm is active, track duration. If past 10 seconds, drain happiness!
+            if (gameState.alarmActive) {
+                gameState.alarmDuration += deltaTime;
+                if (gameState.alarmDuration > 10.0f) {
+                    applyHappinessPenalty(gameState, deltaTime, 2.5f);
+                }
+            }
+
+            if (gameState.alarmActive && glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+                gameState.alarmActive = false;
+                gameState.alarmDuration = 0.0f;
+                std::cout << "[ALARM] Fire alarm turned off.\n";
+            }
         }
 
         int width = 0;
@@ -463,8 +584,15 @@ int main() {
         );
 
         const glm::mat4 viewProjection = projection * view;
-
-        glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+        
+        // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
+        if (gameState.alarmActive) {
+            float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+            glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
+        }
+        else {
+            glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+        }
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(program);
@@ -491,6 +619,29 @@ int main() {
                 part.count
             );
         }
+
+        // --- FEATURE #1: the window title with timer and happiness 
+        char titleBuffer[256];
+        if (gameState.gameOver) {
+            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | GAME OVER: Customer Happiness Reached 0%!");
+        }
+        else {
+            if (gameState.paperworkActive) {
+                snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | Day %d | Time: %.1fs | Happy: %.1f%% | PW: %s%s%s %s",
+                    gameState.currentDay, gameState.shiftTimer, gameState.customerHappiness,
+                    gameState.payrollCompleted ? "[P]" : "[ ]",
+                    gameState.safetyCheckCompleted ? "[S]" : "[ ]",
+                    gameState.inventoryChecked ? "[I]" : "[ ]",
+                    gameState.alarmActive ? "[FIRE ALARM!]" : "");
+            }
+            else {
+                snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | Day %d | Time: %.1fs | Happy: %.1f%% | [Task Completed] %s",
+                    gameState.currentDay, gameState.shiftTimer, gameState.customerHappiness,
+                    gameState.alarmActive ? "[FIRE ALARM!]" : "");
+            }
+        }
+
+        glfwSetWindowTitle(window, titleBuffer);
 
         glfwSwapBuffers(window);
     }
