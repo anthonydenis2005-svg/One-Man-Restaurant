@@ -48,6 +48,26 @@ struct CameraState {
     double lastMouseX = 0.0;
     double lastMouseY = 0.0;
 };
+// Adding game state structure
+struct GameState {
+
+	int currentDay = 1;                 // set to one for now but we will change this when the difficulty increases in the future
+    float shiftTimer = 180.0f;          // for now we will have a 3-minute "shift" (180 seconds)
+	float customerHappiness = 100.0f;   // Starts at 100% going down over time or due to mistakes
+
+    // Paperwork flags (for next features Phase2 :>)
+    bool payrollCompleted = false;
+    bool safetyCheckCompleted = false;
+    bool inventoryChecked = false;
+
+    // Alarm state & timer for random triggers
+    bool alarmActive = false;
+    float alarmTimer = 0.0f;
+    float alarmDuration = 0.0f;         // Tracks how long current alarm has been active so we can penalize satisfaction state
+    bool gameOver = false;
+    float timeSinceLastPaperworkWarning = 0.0f;
+};
+
 
 void onMouseButton(GLFWwindow* window, int button, int action, int) {
     if (button != GLFW_MOUSE_BUTTON_MIDDLE) {
@@ -422,11 +442,60 @@ int main() {
     std::cout << "Hold middle mouse and drag to rotate. "
                  "Scroll to zoom. Esc to exit.\n";
 
+	// Initializing the game state and for the time tracking before the main loop
+    GameState gameState;
+    double lastTime = glfwGetTime();
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
+
+        // --- FEATURE #1: UPDATE DELTA TIME & SHIFT TIMER ---
+        double currentTime = glfwGetTime();
+        float deltaTime = static_cast<float>(currentTime - lastTime);
+        lastTime = currentTime;
+
+        if (!gameState.gameOver) {
+            if (gameState.shiftTimer > 0.0f) {
+                gameState.shiftTimer -= deltaTime;
+                if (gameState.shiftTimer <= 0.0f) {
+                    gameState.shiftTimer = 0.0f;
+                    std::cout << "[VICTORY] Shift completed successfully!\n";
+                }
+            }
+
+            // --- FEATURE #1: RANDOM ALARM TRIGGER & KEY RESOLUTION ('E') ---
+            gameState.alarmTimer += deltaTime;
+            if (!gameState.alarmActive && gameState.alarmTimer > 15.0f) {
+                if (static_cast<int>(currentTime) % 2 == 0) {
+                    gameState.alarmActive = true;
+                    gameState.alarmDuration = 0.0f; // Reset duration when new alarm hits
+                    std::cout << "[ALARM] Fire alarm triggered! Press 'E' to turn it off.\n"; //until we get the button we will just be pressing E :3
+                }
+                gameState.alarmTimer = 0.0f;
+            }
+
+            // If alarm is active, track duration. If past 10 seconds, drain happiness!
+            if (gameState.alarmActive) {
+                gameState.alarmDuration += deltaTime;
+                if (gameState.alarmDuration > 10.0f) {
+                    gameState.customerHappiness -= 2.5f * deltaTime; // Drains ~2.5% per second
+                    if (gameState.customerHappiness <= 0.0f) {
+                        gameState.customerHappiness = 0.0f;
+                        gameState.gameOver = true;
+                        std::cout << "[GAME OVER] Customer happiness dropped to 0%! Restaurant failed.\n";
+                    }
+                }
+            }
+
+            if (gameState.alarmActive && glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+                gameState.alarmActive = false;
+                gameState.alarmDuration = 0.0f;
+                std::cout << "[ALARM] Fire alarm turned off.\n";
+            }
         }
 
         int width = 0;
@@ -463,8 +532,15 @@ int main() {
         );
 
         const glm::mat4 viewProjection = projection * view;
-
-        glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+        
+        // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
+        if (gameState.alarmActive) {
+            float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+            glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
+        }
+        else {
+            glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+        }
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(program);
@@ -491,6 +567,17 @@ int main() {
                 part.count
             );
         }
+
+        // --- FEATURE #1: the window title with timer and happiness 
+        char titleBuffer[256];
+        if (gameState.gameOver) {
+            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | GAME OVER: Customer Happiness Reached 0%!");
+        }
+        else {
+            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | Day %d | Time: %.1fs | Happiness: %.1f%% %s",
+                gameState.currentDay, gameState.shiftTimer, gameState.customerHappiness, gameState.alarmActive ? "[FIRE ALARM!]" : "");
+        }
+        glfwSetWindowTitle(window, titleBuffer);
 
         glfwSwapBuffers(window);
     }
