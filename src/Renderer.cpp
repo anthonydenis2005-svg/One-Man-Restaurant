@@ -86,8 +86,9 @@ GLuint createProgram() {
         "uniform sampler2D uBaseTexture;\n"
         "uniform int uHasTexture;\n"
         "uniform int uOverridePaper;\n"
+        "uniform int uAlarmActive;\n"
+        "uniform float uAlarmPulse;\n"
         "out vec4 fragColor;\n"
-        "\n"
         "void main() {\n"
         "    vec3 lightDirection = normalize(vec3(-0.5, 0.9, 0.6));\n"
         "    float brightness = 0.55 + 0.45 * max(\n"
@@ -98,6 +99,9 @@ GLuint createProgram() {
         "        baseColor = texture(uBaseTexture, vec2(vPaperUV.x, 1.0 - vPaperUV.y)).rgb;\n"
         "    } else if (uHasTexture != 0) {\n"
         "        baseColor *= texture(uBaseTexture, vec2(vTexCoord.x, 1.0 - vTexCoord.y)).rgb;\n"
+        "    }\n"
+        "    if (uAlarmActive != 0) {\n"
+        "        baseColor = mix(baseColor, vec3(1.0f, 0.1f, 0.1f), 0.5f * uAlarmPulse);\n"
         "    }\n"
         "    fragColor = vec4(baseColor * brightness, 1.0);\n"
         "}\n";
@@ -395,61 +399,47 @@ void renderFrame(
         }
     }
 
-    const GLuint program = renderer.program;
-    const GLuint vao = renderer.vao;
-    const GLint viewProjectionLocation = renderer.viewProjectionLocation;
-    const GLint colorLocation = renderer.colorLocation;
-    const GLint texturedLocation = renderer.texturedLocation;
-    const GLint textureLocation = renderer.textureLocation;
+    glViewport(0, 0, width, height);
+    glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glViewport(0, 0, width, height);
-        // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
-        if (gameState.alarmActive) {
-            float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
-            glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
+    glUseProgram(renderer.program);
+
+    glUniformMatrix4fv(renderer.viewProjectionLocation, 1, GL_FALSE, glm::value_ptr(viewProjection));
+
+    // Pass alarm uniforms into fragment shader
+    GLint alarmActiveLoc = glGetUniformLocation(renderer.program, "uAlarmActive");
+    GLint alarmPulseLoc = glGetUniformLocation(renderer.program, "uAlarmPulse");
+    float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+    glUniform1i(alarmActiveLoc, gameState.alarmActive ? 1 : 0);
+    glUniform1f(alarmPulseLoc, pulse);
+
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(renderer.textureLocation, 0);
+    glBindVertexArray(renderer.vao);
+
+    for (const Part& part : parts) {
+        const bool animatedClipboard = part.interactiveName == "Clipboard" &&
+            gameState.clipboardViewState != ClipboardViewState::OnDesk;
+        const glm::mat4 model = animatedClipboard ? clipboardModel : glm::mat4(1.0f);
+        glUniformMatrix4fv(renderer.modelLocation, 1, GL_FALSE, glm::value_ptr(model));
+
+        GLuint texture = 0;
+        if (part.baseColorTextureIndex >= 0 &&
+            static_cast<size_t>(part.baseColorTextureIndex) < renderer.textures.size()) {
+            texture = renderer.textures[part.baseColorTextureIndex];
         }
-        else {
-            glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
-        }
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        const bool overridePaper = part.isClipboardPaper &&
+            gameState.selectedPaperTexture >= 0 &&
+            static_cast<size_t>(gameState.selectedPaperTexture) < renderer.paperTextures.size();
+        if (overridePaper) texture = renderer.paperTextures[gameState.selectedPaperTexture];
 
-        glUseProgram(program);
-
-        glUniformMatrix4fv(
-            viewProjectionLocation,
-            1,
-            GL_FALSE,
-            glm::value_ptr(viewProjection)
-        );
-
-        glActiveTexture(GL_TEXTURE0);
-        glUniform1i(textureLocation, 0);
-        glBindVertexArray(vao);
-
-        // Each part uses its own color and texture, but clipboard parts share one transform.
-        for (const Part& part : parts) {
-            const bool animatedClipboard = part.interactiveName == "Clipboard" &&
-                gameState.clipboardViewState != ClipboardViewState::OnDesk;
-            const glm::mat4 model = animatedClipboard ? clipboardModel : glm::mat4(1.0f);
-            glUniformMatrix4fv(renderer.modelLocation, 1, GL_FALSE, glm::value_ptr(model));
-
-            GLuint texture = 0;
-            if (part.baseColorTextureIndex >= 0 &&
-                static_cast<size_t>(part.baseColorTextureIndex) < renderer.textures.size()) {
-                texture = renderer.textures[part.baseColorTextureIndex];
-            }
-            // Only the clipboard paper gets replaced with the selected PNG.
-            const bool overridePaper = part.isClipboardPaper &&
-                gameState.selectedPaperTexture >= 0 &&
-                static_cast<size_t>(gameState.selectedPaperTexture) < renderer.paperTextures.size();
-            if (overridePaper) texture = renderer.paperTextures[gameState.selectedPaperTexture];
-
-            glBindTexture(GL_TEXTURE_2D, texture);
-            glUniform1i(texturedLocation, texture != 0 ? 1 : 0);
-            glUniform1i(renderer.paperOverrideLocation, overridePaper ? 1 : 0);
-            glUniform3fv(colorLocation, 1, glm::value_ptr(part.color));
-            glDrawArrays(GL_TRIANGLES, part.first, part.count);
-        }
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(renderer.texturedLocation, texture != 0 ? 1 : 0);
+        glUniform1i(renderer.paperOverrideLocation, overridePaper ? 1 : 0);
+        glUniform3fv(renderer.colorLocation, 1, glm::value_ptr(part.color));
+        glDrawArrays(GL_TRIANGLES, part.first, part.count);
+    }
 }
 
 // Free the textures, shaders, and buffers before the window closes.

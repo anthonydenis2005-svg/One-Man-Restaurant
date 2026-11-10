@@ -17,6 +17,42 @@ void applyHappinessPenalty(GameState& state, float deltaTime, float drainRate) {
         std::cout << "[GAME OVER] Customer happiness dropped to 0%! Restaurant failed.\n";
     }
 }
+// Function to toggle the fire alarm state and reset its duration, printing a message to the console. (YAY)
+//Flips the state.alarmActive (switching it on or off) 
+// and resets the state.alarmDuration to 0.0f. 
+// It also prints a message to the console indicating whether the fire alarm has been triggered or turned off.
+void toggleAlarm(GameState& state) {
+    state.alarmActive = !state.alarmActive;
+    state.alarmDuration = 0.0f;
+    if (state.alarmActive) {
+        std::cout << "[ALARM] Fire alarm triggered!\n";
+    }
+    else {
+        std::cout << "[ALARM] Fire alarm turned off.\n";
+    }
+}
+
+// Funtion to handle the completion of individual paperwork tasks and update the game state accordingly.
+void completePaperworkTask(GameState& state, int taskIndex) {
+    if (taskIndex == 1 && !state.payrollCompleted) {
+        state.payrollCompleted = true;
+        std::cout << "[PAPERWORK] Employee Payroll completed!\n";
+    }
+    else if (taskIndex == 2 && !state.safetyCheckCompleted) {
+        state.safetyCheckCompleted = true;
+        std::cout << "[PAPERWORK] Safety Check completed!\n";
+    }
+    else if (taskIndex == 3 && !state.inventoryChecked) {
+        state.inventoryChecked = true;
+        std::cout << "[PAPERWORK] Inventory Check completed!\n";
+    }
+
+    // Clear batch if all done
+    if (state.payrollCompleted && state.safetyCheckCompleted && state.inventoryChecked) {
+        state.paperworkActive = false;
+        std::cout << "[PAPERWORK] All tasks completed successfully! Task cleared.\n";
+    }
+}
 
 // Start raising the clipboard when the player clicks its bounding box.
 void openClipboard(GameState& gameState, CameraState& camera, std::size_t paperTextureCount) {
@@ -66,13 +102,11 @@ void updateGame(GameState& gameState, GLFWwindow* window, float deltaTime, doubl
             }
 
             // --- FEATURE #1:Random alamr trigger and key resolution using "E"
-            // Check for a possible new alarm after 15 seconds without one being active.
+			// Check for a possible new alarm after 15 seconds without one being active. added function utilization for toggling the alarm state and resetting its duration
             gameState.alarmTimer += deltaTime;
             if (!gameState.alarmActive && gameState.alarmTimer > 15.0f) {
                 if (static_cast<int>(currentTime) % 2 == 0) {
-                    gameState.alarmActive = true;
-                    gameState.alarmDuration = 0.0f; // Reset duration when new alarm hits
-                    std::cout << "[ALARM] Fire alarm triggered! Press 'E' to turn it off.\n"; //until we get the button we will just be pressing E :3
+                    toggleAlarm(gameState);
                 }
                 gameState.alarmTimer = 0.0f;
             }
@@ -91,53 +125,33 @@ void updateGame(GameState& gameState, GLFWwindow* window, float deltaTime, doubl
             }
 
             // --- FEATURE #2: PAPERWORK CHECKBOX INPUT LOGIC ---
-            if (gameState.paperworkActive) {
-
-                gameState.paperworkDuration += deltaTime;
-                if (gameState.paperworkDuration > 10.0f) {
-                    applyHappinessPenalty(gameState, deltaTime, 1.5f); // Drains 1.5% happiness per second
-                }
-
-                if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
-                    if (!gameState.payrollCompleted) {
-                        gameState.payrollCompleted = true;
-                        std::cout << "[PAPERWORK] Employee Payroll completed!\n";
-                    }
-                }
-                if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
-                    if (!gameState.safetyCheckCompleted) {
-                        gameState.safetyCheckCompleted = true;
-                        std::cout << "[PAPERWORK] Safety Check completed!\n";
-                    }
-                }
-                if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
-                    if (!gameState.inventoryChecked) {
-                        gameState.inventoryChecked = true;
-                        std::cout << "[PAPERWORK] Inventory Check completed!\n";
-                    }
-                }
-                // The current paperwork batch is cleared only after all three tasks are done.
-                if (gameState.payrollCompleted && gameState.safetyCheckCompleted && gameState.inventoryChecked) {
-                    gameState.paperworkActive = false;
-                    std::cout << "[PAPERWORK] All tasks completed successfully! Task cleared.\n";
-                }
+         // Paperwork task shortcuts (1, 2, 3)
+        if (gameState.paperworkActive) {
+            gameState.paperworkDuration += deltaTime;
+            if (gameState.paperworkDuration > 10.0f) {
+                applyHappinessPenalty(gameState, deltaTime, 1.5f);
             }
 
-            // If alarm is active, track duration. If past 10 seconds, drain happiness!
-            if (gameState.alarmActive) {
-                gameState.alarmDuration += deltaTime;
-                if (gameState.alarmDuration > 10.0f) {
-                    applyHappinessPenalty(gameState, deltaTime, 2.5f);
-                }
-            }
+            if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) completePaperworkTask(gameState, 1);
+            if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) completePaperworkTask(gameState, 2);
+            if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) completePaperworkTask(gameState, 3);
+        }
 
-            // E currently turns the alarm off directly; it is not tied to a 3D button yet.
-            if (gameState.alarmActive && glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-                gameState.alarmActive = false;
-                gameState.alarmDuration = 0.0f;
-                std::cout << "[ALARM] Fire alarm turned off.\n";
+        if (gameState.alarmActive) {
+            gameState.alarmDuration += deltaTime;
+            if (gameState.alarmDuration > 10.0f) {
+                applyHappinessPenalty(gameState, deltaTime, 2.5f);
             }
         }
+
+        // Toggle alarm off using 'E' key calling the modular function
+        static bool eKeyWasPressed = false;
+        bool eKeyIsPressed = (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
+        if (eKeyIsPressed && !eKeyWasPressed && gameState.alarmActive) {
+            toggleAlarm(gameState);
+        }
+        eKeyWasPressed = eKeyIsPressed;
+    }
 }
 
 // The window title shows the shift time, happiness, pending tasks, and alarm warning.
@@ -154,12 +168,12 @@ void updateWindowTitle(GLFWwindow* window, const GameState& gameState) {
                     gameState.payrollCompleted ? "[P]" : "[ ]",
                     gameState.safetyCheckCompleted ? "[S]" : "[ ]",
                     gameState.inventoryChecked ? "[I]" : "[ ]",
-                    gameState.alarmActive ? "[FIRE ALARM!]" : "");
+                    gameState.alarmActive ? "[FIRE ALARM! - Press E]" : "");
             }
             else {
                 snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | Day %d | Time: %.1fs | Happy: %.1f%% | [Task Completed] %s",
                     gameState.currentDay, gameState.shiftTimer, gameState.customerHappiness,
-                    gameState.alarmActive ? "[FIRE ALARM!]" : "");
+                    gameState.alarmActive ? "[FIRE ALARM! - Press E]" : "");
             }
         }
 
