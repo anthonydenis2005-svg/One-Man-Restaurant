@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 // Keeps the OpenGL objects and textures we reuse every frame.
@@ -30,6 +31,11 @@ bool initializeRenderer(
     const std::vector<TextureImage>& images,
     const std::filesystem::path& modelPath
 );
+
+// Show one Blender model whose name ends in "Text" in front of the camera.
+// Other such models remain hidden until selected. No call is made automatically.
+void spawnText(const std::string& modelName);
+void hideText();
 
 // The renderer and click detection both use this transform for the raised clipboard.
 glm::mat4 clipboardModelTransform(const BoundingBox& originalBounds, float progress);

@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -139,7 +140,6 @@ GLuint createProgram() {
     return program;
 }
 
-
 #ifdef _WIN32
 // On Windows, this converts PNG bytes into RGBA pixels for OpenGL.
 bool decodePngWithWic(
@@ -161,7 +161,7 @@ bool decodePngWithWic(
     do {
         if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
             CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) break;
-        if (FAILED(factory->CreateStream(&stream))) break;
+        if (FAILED(factory->CreateStream(stream == nullptr ? &stream : nullptr))) break;
         if (png.size() > static_cast<size_t>(std::numeric_limits<DWORD>::max())) break;
         if (FAILED(stream->InitializeFromMemory(
             const_cast<BYTE*>(png.data()), static_cast<DWORD>(png.size())))) break;
@@ -195,6 +195,22 @@ bool decodePngWithWic(
 
 } // namespace
 
+namespace {
+std::string visibleTextName;
+
+bool isOverlayText(const std::string& name) {
+    return name.size() >= 4 && name.compare(name.size() - 4, 4, "Text") == 0;
+}
+} // namespace
+
+void spawnText(const std::string& modelName) {
+    visibleTextName = modelName;
+}
+
+void hideText() {
+    visibleTextName.clear();
+}
+
 // Upload the model textures and vertices, then prepare the OpenGL shaders.
 bool initializeRenderer(
     RendererState& renderer,
@@ -211,12 +227,12 @@ bool initializeRenderer(
 #ifdef _WIN32
         if (pixels.empty() && !images[i].encodedBytes.empty() &&
             !decodePngWithWic(images[i].encodedBytes, pixels, textureWidth, textureHeight)) {
-            std::cerr << "Failed to decode embedded texture " << i << ".\\n";
+            std::cerr << "Failed to decode embedded texture " << i << ".\n";
             continue;
         }
 #else
         if (!images[i].encodedBytes.empty()) {
-            std::cerr << "Embedded image decoding requires Windows WIC in this version.\\n";
+            std::cerr << "Embedded image decoding requires Windows WIC in this version.\n";
         }
 #endif
         if (pixels.empty() || !textureWidth || !textureHeight) continue;
@@ -234,7 +250,7 @@ bool initializeRenderer(
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glGenerateMipmap(GL_TEXTURE_2D);
         std::cout << "Loaded embedded texture " << i << " ("
-                  << textureWidth << "x" << textureHeight << ").\\n";
+                  << textureWidth << "x" << textureHeight << ").\n";
     }
 
     // These extra PNG files are used as the random paperwork images on the clipboard.
@@ -288,7 +304,6 @@ bool initializeRenderer(
     glEnable(GL_DEPTH_TEST);
 
     const GLuint program = createProgram();
-
 
     if (!program) {
         return false;
@@ -355,25 +370,59 @@ bool initializeRenderer(
     return true;
 }
 
-// Move the clipboard toward the camera as the animation progress goes from 0 to 1.
+// Move the clipboard from the desk to a position relative to the camera.
 glm::mat4 clipboardModelTransform(const BoundingBox& originalBounds, float progress) {
-    const glm::vec3 originalCenter = (originalBounds.min + originalBounds.max) * 0.5f;
+    const glm::vec3 originalCenter =
+        (originalBounds.min + originalBounds.max) * 0.5f;
+
     const float t = std::clamp(progress, 0.0f, 1.0f);
-    // Ease the movement so the clipboard does not start and stop abruptly.
     const float eased = t * t * (3.0f - 2.0f * t);
+
+    const glm::vec3 cameraPosition = getCameraPosition();
+
     const float yaw = glm::radians(kInitialCameraYaw);
     const float pitch = glm::radians(kInitialCameraPitch);
+
     const glm::vec3 forward(
         std::cos(yaw) * std::cos(pitch),
         std::sin(pitch),
         std::sin(yaw) * std::cos(pitch)
     );
-    // The destination controls the final position of the raised clipboard.
-    const glm::vec3 destination = getCameraPosition() + forward * 0.80f;
-    const glm::vec3 center = destination + glm::vec3(0.0f, -0.95f * (1.0f - eased), 0.0f);
+
+    const glm::mat4 view = glm::lookAt(
+        cameraPosition,
+        cameraPosition + glm::normalize(forward),
+        glm::vec3(0.0f, 1.0f, 0.0f)
+    );
+
+    const glm::mat4 cameraTransform = glm::inverse(view);
+
+    // Position relative to the camera: X, Y, and distance forward.
+    const glm::vec3 destination = glm::vec3(
+        cameraTransform * glm::vec4(0.0f, -0.03f, -1.30f, 1.0f)
+    );
+
+    // Move smoothly from the desk to the camera.
+    const glm::vec3 center =
+        glm::mix(originalCenter, destination, eased);
+
+    // Rotate the clipboard to face the camera.
+    const glm::quat targetRotation =
+        glm::quat_cast(glm::mat3(cameraTransform)) *
+        glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+    const glm::quat rotation = glm::slerp(
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        targetRotation,
+        eased
+    );
+
+    // Increase the clipboard size as it approaches the camera.
+    const float scale = glm::mix(1.0f, 1.85f, eased);
+
     glm::mat4 model = glm::translate(glm::mat4(1.0f), center);
-    model = glm::rotate(model, glm::radians(64.579f), glm::vec3(1.0f, 0.0f, 0.0f));
-    //model = glm::scale(model, glm::vec3(1.85f));
+    model *= glm::mat4_cast(rotation);
+    model = glm::scale(model, glm::vec3(scale));
 
     return glm::translate(model, -originalCenter);
 }
@@ -402,54 +451,113 @@ void renderFrame(
     const GLint texturedLocation = renderer.texturedLocation;
     const GLint textureLocation = renderer.textureLocation;
 
-        glViewport(0, 0, width, height);
-        // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
-        if (gameState.alarmActive) {
-            float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
-            glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
-        }
-        else {
-            glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
-        }
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glViewport(0, 0, width, height);
 
-        glUseProgram(program);
+    // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
+    if (gameState.alarmActive) {
+        float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+        glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
+    }
+    else {
+        glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+    }
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glUseProgram(program);
+
+    glUniformMatrix4fv(
+        viewProjectionLocation,
+        1,
+        GL_FALSE,
+        glm::value_ptr(viewProjection)
+    );
+
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(textureLocation, 0);
+    glBindVertexArray(vao);
+
+    // Locate the selected text model, if any. Text meshes are not interactive objects.
+    glm::vec3 textCenter(0.0f);
+    float textWidth = 0.0f;
+    int textPartCount = 0;
+    for (const Part& part : parts) {
+        if (isOverlayText(part.name) && part.name == visibleTextName) {
+            textCenter += part.center;
+            textWidth = std::max(textWidth, part.modelWidth);
+            ++textPartCount;
+        }
+    }
+
+    glm::mat4 textModel(1.0f);
+    if (textPartCount > 0) {
+        textCenter /= static_cast<float>(textPartCount);
+
+        const float yaw = glm::radians(kInitialCameraYaw);
+        const float pitch = glm::radians(kInitialCameraPitch);
+        const glm::vec3 forward(
+            std::cos(yaw) * std::cos(pitch),
+            std::sin(pitch),
+            std::sin(yaw) * std::cos(pitch)
+        );
+        const glm::mat4 cameraWorld = glm::inverse(glm::lookAt(
+            getCameraPosition(),
+            getCameraPosition() + glm::normalize(forward),
+            glm::vec3(0.0f, 1.0f, 0.0f)
+        ));
+
+        // The clipboard stops 1.30 units away; put text 1.05 units away.
+        const float textScale = 0.65f / std::max(0.000001f, textWidth);
+        textModel =
+            cameraWorld *
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.03f, -1.05f)) *
+            glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)) *
+            glm::scale(glm::mat4(1.0f), glm::vec3(textScale)) *
+            glm::translate(glm::mat4(1.0f), -textCenter);
+    }
+
+    // Each part uses its own color and texture, but clipboard parts share one transform.
+    for (const Part& part : parts) {
+        const bool animatedClipboard = part.interactiveName == "Clipboard" &&
+            gameState.clipboardViewState != ClipboardViewState::OnDesk;
+
+        if (isOverlayText(part.name) && part.name != visibleTextName) {
+            continue;
+        }
+
+        glm::mat4 model = animatedClipboard ? clipboardModel : glm::mat4(1.0f);
+        if (isOverlayText(part.name) && textPartCount > 0) {
+            model = textModel;
+        }
 
         glUniformMatrix4fv(
-            viewProjectionLocation,
+            renderer.modelLocation,
             1,
             GL_FALSE,
-            glm::value_ptr(viewProjection)
+            glm::value_ptr(model)
         );
 
-        glActiveTexture(GL_TEXTURE0);
-        glUniform1i(textureLocation, 0);
-        glBindVertexArray(vao);
-
-        // Each part uses its own color and texture, but clipboard parts share one transform.
-        for (const Part& part : parts) {
-            const bool animatedClipboard = part.interactiveName == "Clipboard" &&
-                gameState.clipboardViewState != ClipboardViewState::OnDesk;
-            const glm::mat4 model = animatedClipboard ? clipboardModel : glm::mat4(1.0f);
-            glUniformMatrix4fv(renderer.modelLocation, 1, GL_FALSE, glm::value_ptr(model));
-
-            GLuint texture = 0;
-            if (part.baseColorTextureIndex >= 0 &&
-                static_cast<size_t>(part.baseColorTextureIndex) < renderer.textures.size()) {
-                texture = renderer.textures[part.baseColorTextureIndex];
-            }
-            // Only the clipboard paper gets replaced with the selected PNG.
-            const bool overridePaper = part.isClipboardPaper &&
-                gameState.selectedPaperTexture >= 0 &&
-                static_cast<size_t>(gameState.selectedPaperTexture) < renderer.paperTextures.size();
-            if (overridePaper) texture = renderer.paperTextures[gameState.selectedPaperTexture];
-
-            glBindTexture(GL_TEXTURE_2D, texture);
-            glUniform1i(texturedLocation, texture != 0 ? 1 : 0);
-            glUniform1i(renderer.paperOverrideLocation, overridePaper ? 1 : 0);
-            glUniform3fv(colorLocation, 1, glm::value_ptr(part.color));
-            glDrawArrays(GL_TRIANGLES, part.first, part.count);
+        GLuint texture = 0;
+        if (part.baseColorTextureIndex >= 0 &&
+            static_cast<size_t>(part.baseColorTextureIndex) < renderer.textures.size()) {
+            texture = renderer.textures[part.baseColorTextureIndex];
         }
+
+        // Only the clipboard paper gets replaced with the selected PNG.
+        const bool overridePaper = part.isClipboardPaper &&
+            gameState.selectedPaperTexture >= 0 &&
+            static_cast<size_t>(gameState.selectedPaperTexture) < renderer.paperTextures.size();
+
+        if (overridePaper) {
+            texture = renderer.paperTextures[gameState.selectedPaperTexture];
+        }
+
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(texturedLocation, texture != 0 ? 1 : 0);
+        glUniform1i(renderer.paperOverrideLocation, overridePaper ? 1 : 0);
+        glUniform3fv(colorLocation, 1, glm::value_ptr(part.color));
+        glDrawArrays(GL_TRIANGLES, part.first, part.count);
+    }
 }
 
 // Free the textures, shaders, and buffers before the window closes.
@@ -457,12 +565,15 @@ void destroyRenderer(const RendererState& renderer) {
     const GLuint vbo = renderer.vbo;
     const GLuint vao = renderer.vao;
     const GLuint program = renderer.program;
+
     for (GLuint texture : renderer.textures) {
         if (texture != 0) glDeleteTextures(1, &texture);
     }
+
     for (GLuint texture : renderer.paperTextures) {
         if (texture != 0) glDeleteTextures(1, &texture);
     }
+
     glDeleteBuffers(1, &vbo);
     glDeleteVertexArrays(1, &vao);
     glDeleteProgram(program);
