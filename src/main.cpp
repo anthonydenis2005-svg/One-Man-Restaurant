@@ -25,7 +25,7 @@ int main() {
 
     if (modelPath.empty()) {
         std::cerr << "No GLB model found. Place office.glb or "
-                     "tutorial_donut1.glb inside assets/models/.\n";
+            "tutorial_donut1.glb inside assets/models/.\n";
         return 1;
     }
 
@@ -86,7 +86,7 @@ int main() {
     }
 
     std::cout << "Hold middle mouse and drag to rotate. "
-                 "Left-click the clipboard, click outside or right-click to return. Esc to exit.\n";
+        "Left-click the clipboard, click outside or right-click to return. Esc to exit.\n";
 
     // Initializing the game state and for the time tracking before the main loop
     GameState gameState;
@@ -99,10 +99,59 @@ int main() {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
 
-       // --- FEATURE #1:Update delata time and shift timer
+        // --- FEATURE #1:Update delata time and shift timer
         double currentTime = glfwGetTime();
         float deltaTime = static_cast<float>(currentTime - lastTime);
         lastTime = currentTime;
+
+        // ==========================================
+        // PAUSE & GAME OVER INPUT & STATE CONTROLS ^-^
+        // ==========================================
+
+        // Toggle pause state using 'P' key
+        static bool pKeyWasPressed = false;
+        bool pKeyIsPressed = (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS);
+        if (pKeyIsPressed && !pKeyWasPressed && !gameState.gameOver) {
+            gameState.isPaused = !gameState.isPaused;
+
+            if (gameState.isPaused) {
+                //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL); // Show cursor for menus
+                std::cout << "[GAME] Paused.\n";
+            }
+            else {
+                // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // Hide cursor for 3D look
+                // glfwSetCursorPos(window, 1280.0 / 2.0, 720.0 / 2.0);
+                std::cout << "[GAME] Resumed.\n";
+            }
+        }
+        pKeyWasPressed = pKeyIsPressed;
+
+
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+        // If paused or game over, handle restart/quit and freeze gameplay updates **Commented out for now, but can be re-enabled if needed**
+        if (gameState.isPaused || gameState.gameOver) {
+            if (gameState.gameOver) {
+                if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+                    resetGame(gameState); // Resets stats and clears all active tasks
+                }
+                if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+                    glfwSetWindowShouldClose(window, GLFW_TRUE);
+                }
+            }
+            // Skip the rest of the simulation update for this frame, 
+            // but still allow the window to render the background!
+            int pauseWidth = 0, pauseHeight = 0;
+            glfwGetFramebufferSize(window, &pauseWidth, &pauseHeight);
+            if (pauseWidth > 0 && pauseHeight > 0) {
+                const glm::mat4 viewProjection = calculateViewProjection(camera, pauseWidth, pauseHeight);
+                renderFrame(renderer, parts, interactiveObjects, viewProjection, gameState, pauseWidth, pauseHeight);
+                updateWindowTitle(window, gameState);
+                glfwSwapBuffers(window);
+            }
+            continue;
+        }
+        // ==========================================
 
         // The input callback saved a left click, so we now check what was clicked.
         if (camera.clickPending) {
@@ -126,11 +175,13 @@ int main() {
                     // The matched object name decides which interaction runs.
                     if (closestObject == "Clipboard") {
                         openClipboard(gameState, camera, renderer.paperTextures.size());
-                    } else if (!closestObject.empty()) {
+                    }
+                    else if (!closestObject.empty()) {
                         std::cout << "Clicked: " << closestObject << '\n';
                     }
-                } else if (gameState.clipboardViewState == ClipboardViewState::Raised ||
-                           gameState.clipboardViewState == ClipboardViewState::Raising) {
+                }
+                else if (gameState.clipboardViewState == ClipboardViewState::Raised ||
+                    gameState.clipboardViewState == ClipboardViewState::Raising) {
                     // Clicking outside the raised clipboard sends it back to the desk.
                     bool clickedClipboard = false;
                     for (const InteractiveObject& object : interactiveObjects) {
@@ -140,7 +191,7 @@ int main() {
                         const glm::mat4 inverseModel = glm::inverse(model);
                         const glm::vec3 origin = glm::vec3(inverseModel * glm::vec4(ray.origin, 1.0f));
                         const glm::vec3 direction = glm::vec3(inverseModel * glm::vec4(ray.direction, 0.0f));
-                        const Ray localRay{origin, direction};
+                        const Ray localRay{ origin, direction };
                         float distance = 0.0f;
                         clickedClipboard = rayIntersectsBox(localRay, object.bounds, distance);
                         break;

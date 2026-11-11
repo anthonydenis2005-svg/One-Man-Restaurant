@@ -14,3 +14,4 @@ void openClipboard(GameState& gameState, CameraState& camera, std::size_t paperT
 void closeClipboard(GameState& gameState);
 void toggleAlarm(GameState& state);
 void completePaperworkTask(GameState& state, int taskIndex);
+void resetGame(GameState& state);

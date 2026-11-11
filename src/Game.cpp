@@ -158,8 +158,11 @@ void updateGame(GameState& gameState, GLFWwindow* window, float deltaTime, doubl
 void updateWindowTitle(GLFWwindow* window, const GameState& gameState) {
         // --- FEATURE #1: the window title with timer and happiness
         char titleBuffer[256];
-        if (gameState.gameOver) {
-            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | GAME OVER: Customer Happiness Reached 0%!");
+        if (gameState.isPaused) {
+            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | PAUSED - Press [P] to Resume");
+        }
+        else if (gameState.gameOver) {
+            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | GAME OVER: Customer Happiness Reached 0%! Press [R] to Restart");
         }
         else {
             if (gameState.paperworkActive) {
@@ -178,4 +181,33 @@ void updateWindowTitle(GLFWwindow* window, const GameState& gameState) {
         }
 
         glfwSetWindowTitle(window, titleBuffer);
+}
+
+void resetGame(GameState& state) {
+    // Reset core stats
+    state.customerHappiness = 100.0f;
+    state.shiftTimer = 180.0f;
+    state.gameOver = false;
+    state.isPaused = false;
+
+    // Reset alarm state completely
+    state.alarmActive = false;
+    state.alarmTimer = 0.0f;
+    state.alarmDuration = 0.0f;
+
+    // Reset paperwork and task states
+    state.paperworkActive = false;
+    state.paperworkTimer = 0.0f;
+    state.paperworkDuration = 0.0f;
+    state.payrollCompleted = true;       // Match initial safe state
+    state.safetyCheckCompleted = true;   // Match initial safe state
+    state.inventoryChecked = true;       // Match initial safe state
+    state.timeSinceLastPaperworkWarning = 0.0f;
+
+    // Reset clipboard view back to desk
+    state.clipboardViewState = ClipboardViewState::OnDesk;
+    state.clipboardProgress = 0.0f;
+    state.selectedPaperTexture = -1;
+
+    std::cout << "[GAME] Game state fully reset, all tasks cleared.\n";
 }

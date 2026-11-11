@@ -11,6 +11,7 @@ struct GameState {
     int currentDay = 1;                 // set to one for now but we will change this when the difficulty increases in the future
     float shiftTimer = 180.0f;          // for now we will have a 3-minute "shift" (180 seconds)
     float customerHappiness = 100.0f;   // Starts at 100% going down over time or due to mistakes
+    bool isPaused = false;              // Indicates if the game is paused
 
     // Paperwork event state and individual task flags (for next features Phase2 :> to be advanced)
     bool paperworkActive = false;
@@ -24,7 +25,7 @@ struct GameState {
     bool alarmActive = false;
     float alarmTimer = 0.0f;
     float alarmDuration = 0.0f;         // Tracks how long current alarm has been active so we can penalize satisfaction state
-    bool gameOver = false;
+	bool gameOver = false;              // Indicates if the game has ended due to customer happiness reaching 0%
     float timeSinceLastPaperworkWarning = 0.0f;
 
     // These values keep track of the clipboard animation and which paper image is shown.
