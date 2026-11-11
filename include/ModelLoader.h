@@ -2,24 +2,20 @@
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
-
 #include <filesystem>
 #include <string>
 #include <vector>
 
-// A bounding box is the minimum and maximum corner around a 3D object.
 struct BoundingBox {
     glm::vec3 min{0.0f};
     glm::vec3 max{0.0f};
 };
 
-// Clickable objects have a name and a box that the mouse ray can hit.
 struct InteractiveObject {
     std::string name;
     BoundingBox bounds;
 };
 
-// Each mesh part stores its material and which vertices to draw.
 struct Part {
     std::string name;
     std::string interactiveName;
@@ -32,7 +28,6 @@ struct Part {
     float modelWidth = 1.0f;
 };
 
-// Image data is loaded here before the renderer uploads it to the graphics card.
 struct TextureImage {
     std::vector<unsigned char> encodedBytes;
     std::vector<unsigned char> rgbaPixels;
@@ -41,8 +36,6 @@ struct TextureImage {
 };
 
 std::filesystem::path findModelPath();
-
-// Loads the model, its textures, and the bounding boxes for interactive objects.
 bool loadOfficeModel(
     const std::filesystem::path& path,
     std::vector<float>& vertices,

@@ -87,6 +87,8 @@ GLuint createProgram() {
         "uniform sampler2D uBaseTexture;\n"
         "uniform int uHasTexture;\n"
         "uniform int uOverridePaper;\n"
+        "uniform int uAlarmActive;\n"
+        "uniform float uAlarmPulse;\n"
         "out vec4 fragColor;\n"
         "\n"
         "void main() {\n"
@@ -99,6 +101,9 @@ GLuint createProgram() {
         "        baseColor = texture(uBaseTexture, vec2(vPaperUV.x, 1.0 - vPaperUV.y)).rgb;\n"
         "    } else if (uHasTexture != 0) {\n"
         "        baseColor *= texture(uBaseTexture, vec2(vTexCoord.x, 1.0 - vTexCoord.y)).rgb;\n"
+        "    }\n"
+        "    if (uAlarmActive != 0) {\n"
+        "        baseColor = mix(baseColor, vec3(1.0, 0.1, 0.1), 0.5 * uAlarmPulse);\n"
         "    }\n"
         "    fragColor = vec4(baseColor * brightness, 1.0);\n"
         "}\n";
@@ -161,7 +166,7 @@ bool decodePngWithWic(
     do {
         if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
             CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) break;
-        if (FAILED(factory->CreateStream(stream == nullptr ? &stream : nullptr))) break;
+        if (FAILED(factory->CreateStream(&stream))) break;
         if (png.size() > static_cast<size_t>(std::numeric_limits<DWORD>::max())) break;
         if (FAILED(stream->InitializeFromMemory(
             const_cast<BYTE*>(png.data()), static_cast<DWORD>(png.size())))) break;
@@ -453,12 +458,11 @@ void renderFrame(
 
     glViewport(0, 0, width, height);
 
-    // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
+    // Flash the background and the room surfaces when the alarm is active.
     if (gameState.alarmActive) {
-        float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+        const float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
         glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
-    }
-    else {
+    } else {
         glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
     }
 
@@ -472,6 +476,13 @@ void renderFrame(
         GL_FALSE,
         glm::value_ptr(viewProjection)
     );
+
+    // Send the alarm intensity to the shader so the 3D room flashes red.
+    const GLint alarmActiveLocation = glGetUniformLocation(program, "uAlarmActive");
+    const GLint alarmPulseLocation = glGetUniformLocation(program, "uAlarmPulse");
+    const float alarmPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+    glUniform1i(alarmActiveLocation, gameState.alarmActive ? 1 : 0);
+    glUniform1f(alarmPulseLocation, alarmPulse);
 
     glActiveTexture(GL_TEXTURE0);
     glUniform1i(textureLocation, 0);
