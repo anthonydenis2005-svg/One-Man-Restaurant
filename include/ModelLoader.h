@@ -28,6 +28,8 @@ struct Part {
     glm::vec3 color{0.8f};
     int baseColorTextureIndex = -1;
     bool isClipboardPaper = false;
+    glm::vec3 center{0.0f};
+    float modelWidth = 1.0f;
 };
 
 // Image data is loaded here before the renderer uploads it to the graphics card.

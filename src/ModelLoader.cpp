@@ -36,14 +36,23 @@ bool beginsWith(const std::string& name, const std::string& prefix) {
 
 // Decide which Blender objects get clickable bounding boxes. Board and Paper share one Clipboard box.
 std::string interactionGroup(const std::string& name) {
-    if (name == "Board" || name == "Paper") return "Clipboard";
-    //Names of objects that need bounding boxes
-    // Add new name prefixes here when more office objects need to be clickable.
-    static const std::vector<std::string> interactivePrefixes{"Clipboard"};
-    for (const auto& prefix : interactivePrefixes) {
-        if (beginsWith(name, prefix)) return prefix == "Clipboard" ? prefix : name;
-    }
-    return {};
+        if (name == "Board" || name == "ClipPaper")
+            return "Clipboard";
+
+        if (name == "FireAlarm" || name == "FireAlarmSwitch")
+            return "FireAlarmBox";
+
+        static const std::vector<std::string> interactivePrefixes{
+            "Clipboard",
+            "FireAlarmBox"
+        };
+
+        for (const auto& prefix : interactivePrefixes) {
+            if (beginsWith(name, prefix))
+                return prefix;
+        }
+
+        return {};
 }
 
 // Expand a box to include another vertex of the model.
@@ -175,7 +184,7 @@ bool loadOfficeModel(
             Part part;
             part.name = name;
             part.interactiveName = groupName;
-            part.isClipboardPaper = name == "Paper" || beginsWith(name, "Clipboard_Paper");
+            part.isClipboardPaper = name == "ClipPaper";
             part.first = static_cast<GLint>(vertices.size() / 10);
 
             if (mesh->mMaterialIndex < scene->mNumMaterials) {
@@ -247,6 +256,8 @@ bool loadOfficeModel(
 
             // Add the finished part and extend its shared interaction box.
             if (part.count > 0) {
+                part.center = (meshBounds.min + meshBounds.max) * 0.5f;
+                part.modelWidth = std::max(0.000001f, meshBounds.max.x - meshBounds.min.x);
                 parts.push_back(part);
                 if (!groupName.empty()) {
                     auto result = groups.emplace(groupName, emptyBounds());
