@@ -15,3 +15,10 @@ void closeClipboard(GameState& gameState);
 void toggleAlarm(GameState& state);
 void completePaperworkTask(GameState& state, int taskIndex);
 void resetGame(GameState& state);
+
+// Happiness & Phase 2 customer/restaurant state helpers.
+void finalizeHappinessCheck(GameState& state, const char* reason = nullptr);
+void applyHappinessDrain(GameState& state, float deltaTime, float drainPerSecond, const char* reason = nullptr);
+void applyHappinessDelta(GameState& state, float delta, bool instantGameOver = false, const char* reason = nullptr);
+void onCustomerServed(GameState& state);
+void updateCustomerStates(GameState& state, float deltaTime);
