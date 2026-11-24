@@ -10,7 +10,7 @@
 #include <iostream>
 
 // Clamps happiness and triggers game over if it drops to 0 or below.
-void finalizeHappinessCheck(GameState& state, const char* reason = nullptr) {
+void finalizeHappinessCheck(GameState& state, const char* reason) {
     if (state.customerHappiness <= 0.0f) {
         state.customerHappiness = 0.0f;
         state.gameOver = true;
@@ -21,14 +21,14 @@ void finalizeHappinessCheck(GameState& state, const char* reason = nullptr) {
 }
 
 // Continuous happiness drain over time (rate = happiness lost per second).
-void applyHappinessDrain(GameState& state, float deltaTime, float drainPerSecond, const char* reason = nullptr) {
+void applyHappinessDrain(GameState& state, float deltaTime, float drainPerSecond, const char* reason) {
     if (state.gameOver || drainPerSecond <= 0.0f) return;
     state.customerHappiness -= drainPerSecond * deltaTime;
     finalizeHappinessCheck(state, reason);
 }
 
 // Flat happiness change (negative delta = penalty) or immediate game over.
-void applyHappinessDelta(GameState& state, float delta, bool instantGameOver = false, const char* reason = nullptr) {
+void applyHappinessDelta(GameState& state, float delta, bool instantGameOver, const char* reason) {
     if (state.gameOver) return;
     if (instantGameOver) {
         state.customerHappiness = 0.0f;
@@ -266,7 +266,7 @@ void updateWindowTitle(GLFWwindow* window, const GameState& gameState) {
             snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | PAUSED - Press [P] to Resume");
         }
         else if (gameState.gameOver) {
-            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | GAME OVER: Customer Happiness Reached 0%! Press [R] to Restart");
+            snprintf(titleBuffer, sizeof(titleBuffer), "One Man Restaurant | GAME OVER: Customer Happiness Reached 0%%! Press [R] to Restart");
         }
         else {
             if (gameState.paperworkActive) {

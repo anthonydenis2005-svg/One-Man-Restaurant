@@ -371,6 +371,8 @@ bool initializeRenderer(
         glGetUniformLocation(program, "uHasTexture");
     renderer.textureLocation =
         glGetUniformLocation(program, "uBaseTexture");
+    renderer.alarmActiveLocation = glGetUniformLocation(program, "uAlarmActive");
+    renderer.alarmPulseLocation = glGetUniformLocation(program, "uAlarmPulse");
     return true;
 }
 
@@ -469,6 +471,10 @@ void renderFrame(
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(program);
+
+    const float alarmPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+    glUniform1i(renderer.alarmActiveLocation, gameState.alarmActive ? 1 : 0);
+    glUniform1f(renderer.alarmPulseLocation, alarmPulse);
 
     glUniformMatrix4fv(
         viewProjectionLocation,

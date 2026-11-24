@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "Audio.h"
 #include "Game.h"
 #include "GameState.h"
 #include "Input.h"
@@ -90,6 +91,10 @@ int main() {
 
     // Initializing the game state and for the time tracking before the main loop
     GameState gameState;
+    //Audio things <3
+    AudioState audio;
+    initializeAudio(audio);
+
     double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -147,6 +152,7 @@ int main() {
                 const glm::mat4 viewProjection = calculateViewProjection(camera, pauseWidth, pauseHeight);
                 renderFrame(renderer, parts, interactiveObjects, viewProjection, gameState, pauseWidth, pauseHeight);
                 updateWindowTitle(window, gameState);
+                syncLoopingAudio(audio, gameState);
                 glfwSwapBuffers(window);
             }
             continue;
@@ -222,9 +228,11 @@ int main() {
         const glm::mat4 viewProjection = calculateViewProjection(camera, width, height);
         renderFrame(renderer, parts, interactiveObjects, viewProjection, gameState, width, height);
         updateWindowTitle(window, gameState);
+        syncLoopingAudio(audio, gameState);
 
         glfwSwapBuffers(window);
     }
+    shutdownAudio(audio);
     destroyRenderer(renderer);
 
     glfwDestroyWindow(window);

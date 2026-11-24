@@ -23,6 +23,8 @@ struct RendererState {
     GLint texturedLocation = -1;
     GLint paperOverrideLocation = -1;
     GLint textureLocation = -1;
+    GLint alarmActiveLocation = -1;
+    GLint alarmPulseLocation = -1;
 };
 
 bool initializeRenderer(
