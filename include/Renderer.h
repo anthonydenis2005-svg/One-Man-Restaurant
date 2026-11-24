@@ -2,15 +2,19 @@
 
 #include "GameState.h"
 #include "ModelLoader.h"
+
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+
 #include <filesystem>
 #include <string>
 #include <vector>
 
+// Keeps the OpenGL objects and textures we reuse every frame.
 struct RendererState {
     std::vector<GLuint> textures;
     std::vector<GLuint> paperTextures;
+    std::vector<std::string> paperTextureNames;
     GLuint program = 0;
     GLuint vao = 0;
     GLuint vbo = 0;
@@ -20,6 +24,7 @@ struct RendererState {
     GLint texturedLocation = -1;
     GLint paperOverrideLocation = -1;
     GLint textureLocation = -1;
+    GLint cameraScreenLocation = -1;
 };
 
 bool initializeRenderer(
@@ -28,14 +33,30 @@ bool initializeRenderer(
     const std::vector<TextureImage>& images,
     const std::filesystem::path& modelPath
 );
+
+// Show one Blender model whose name ends in "Text" in front of the camera.
+// Other such models remain hidden until selected. No call is made automatically.
 void spawnText(const std::string& modelName);
 void hideText();
+
+// The renderer and click detection both use this transform for the raised clipboard.
 glm::mat4 clipboardModelTransform(const BoundingBox& originalBounds, float progress);
+
+// Draws the office, including the current clipboard position and paperwork texture.
 void renderFrame(
     const RendererState& renderer,
     const std::vector<Part>& parts,
     const std::vector<InteractiveObject>& interactiveObjects,
     const glm::mat4& viewProjection,
-    const GameState& gameState, int width, int height
+    const GameState& gameState, int width, int height,
+    GLuint monitorTexture = 0
 );
+
+void renderRestaurantScene(
+    const RendererState& renderer,
+    const std::vector<Part>& restaurantParts,
+    const glm::mat4& cameraViewProjection,
+    int width, int height
+);
+
 void destroyRenderer(const RendererState& renderer);

@@ -12,6 +12,11 @@ add_executable(OneManRestaurant
     src/Game.cpp
     src/Camera.cpp
     src/Renderer.cpp
+    src/SecurityCamera.cpp
+    src/Paperwork.cpp
+    src/ShiftClock.cpp
+    src/ScreenUI.cpp
+    src/UIController.cpp
     src/ModelLoader.cpp
     src/Input.cpp
 )
@@ -26,6 +31,7 @@ target_link_libraries(OneManRestaurant PRIVATE
 
 if(WIN32)
     target_link_libraries(OneManRestaurant PRIVATE windowscodecs ole32)
+    target_link_libraries(OneManRestaurant PRIVATE gdi32)
 endif()
 
 if(MSVC)
