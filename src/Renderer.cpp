@@ -1,5 +1,7 @@
 #include "Renderer.h"
 #include "Camera.h"
+#include "Paperwork.h"
+#include "ShiftClock.h"
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -70,11 +72,13 @@ GLuint createProgram() {
         "out vec3 vNormal;\n"
         "out vec2 vPaperUV;\n"
         "out vec2 vTexCoord;\n"
+        "out vec3 vOfficePosition;\n"
         "\n"
         "void main() {\n"
         "    vNormal = mat3(uModel) * aNormal;\n"
         "    vPaperUV = aPaperUV;\n"
         "    vTexCoord = aTexCoord;\n"
+        "    vOfficePosition = aPosition;\n"
         "    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);\n"
         "}\n";
 
@@ -83,15 +87,30 @@ GLuint createProgram() {
         "in vec3 vNormal;\n"
         "in vec2 vTexCoord;\n"
         "in vec2 vPaperUV;\n"
+        "in vec3 vOfficePosition;\n"
         "uniform vec3 uColor;\n"
         "uniform sampler2D uBaseTexture;\n"
         "uniform int uHasTexture;\n"
         "uniform int uOverridePaper;\n"
+        "uniform int uCameraScreen;\n"
         "uniform int uAlarmActive;\n"
         "uniform float uAlarmPulse;\n"
+        "uniform int uPaperCheckedMask;\n"
+        "uniform int uPaperStampMode;\n"
+        "uniform int uClockBase;\n"
+        "uniform vec2 uClockCenter;\n"
+        "uniform float uClockRadius;\n"
         "out vec4 fragColor;\n"
+        "float segmentDistance(vec2 p, vec2 a, vec2 b) {\n"
+        "    vec2 v = b - a;\n"
+        "    return length(p - (a + clamp(dot(p-a,v) / dot(v,v),0.0,1.0)*v));\n"
+        "}\n"
         "\n"
         "void main() {\n"
+        "    if (uCameraScreen != 0) {\n"
+        "        fragColor = texture(uBaseTexture, vTexCoord);\n"
+        "        return;\n"
+        "    }\n"
         "    vec3 lightDirection = normalize(vec3(-0.5, 0.9, 0.6));\n"
         "    float brightness = 0.55 + 0.45 * max(\n"
         "        dot(normalize(vNormal), lightDirection), 0.0\n"
@@ -101,6 +120,34 @@ GLuint createProgram() {
         "        baseColor = texture(uBaseTexture, vec2(vPaperUV.x, 1.0 - vPaperUV.y)).rgb;\n"
         "    } else if (uHasTexture != 0) {\n"
         "        baseColor *= texture(uBaseTexture, vec2(vTexCoord.x, 1.0 - vTexCoord.y)).rgb;\n"
+        "    }\n"
+        "    if (uOverridePaper != 0 && 1.0 - vPaperUV.y >= 205.0/1685.0) {\n"
+        "        float adjustedV = ((1.0 - vPaperUV.y) - 205.0/1685.0) / (1.0 - 205.0/1685.0);\n"
+        "        vec2 grid = vec2(vPaperUV.x*3.0, adjustedV*4.0);\n"
+        "        ivec2 cell = ivec2(clamp(floor(grid), vec2(0.0), vec2(2.0,3.0)));\n"
+        "        int slot = cell.y * 3 + cell.x;\n"
+        "        vec2 q = fract(grid);\n"
+        "        if (slot < 9 && ((uPaperCheckedMask & (1 << slot)) != 0)) {\n"
+        "            float d = min(segmentDistance(q, vec2(.32,.50), vec2(.44,.62)),\n"
+        "                          segmentDistance(q, vec2(.44,.62), vec2(.68,.32)));\n"
+        "            baseColor = mix(baseColor, vec3(.08,.23,.14), 1.0-smoothstep(.020,.052,d));\n"
+        "        }\n"
+        "        if (slot == 11) {\n"
+        "            float distanceToCenter = length((q - vec2(.5)) * vec2(1.0, 0.85));\n"
+        "            float ring = 1.0 - smoothstep(.015, .039, abs(distanceToCenter-.245));\n"
+        "            float cross = min(abs(q.x - .5),abs(q.y - .5));\n"
+        "            float ink = max(ring, (1.0-smoothstep(.015,.040,cross)) * (1.0-smoothstep(.13,.23,distanceToCenter)));\n"
+        "            float strength = uPaperStampMode == 2 ? .80 : .30;\n"
+        "            baseColor = mix(baseColor, vec3(.56,.09,.09), ink * strength);\n"
+        "        }\n"
+        "    }\n"
+        "    if (uClockBase != 0) {\n"
+        "        vec2 d = vOfficePosition.xy - uClockCenter;\n"
+        "        float r = length(d) / max(uClockRadius, .0001);\n"
+        "        float ring = smoothstep(.84, .92, r);\n"
+        "        baseColor = mix(vec3(.20,.21,.22), vec3(.91,.88,.80), ring);\n"
+        "        float mark = abs(sin(6.0 * atan(d.x, d.y)));\n"
+        "        if (r >= .73 && r <= .82 && mark < .060) baseColor = vec3(.95,.92,.84);\n"
         "    }\n"
         "    if (uAlarmActive != 0) {\n"
         "        baseColor = mix(baseColor, vec3(1.0, 0.1, 0.1), 0.5 * uAlarmPulse);\n"
@@ -166,7 +213,7 @@ bool decodePngWithWic(
     do {
         if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
             CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) break;
-        if (FAILED(factory->CreateStream(&stream))) break;
+        if (FAILED(factory->CreateStream(stream == nullptr ? &stream : nullptr))) break;
         if (png.size() > static_cast<size_t>(std::numeric_limits<DWORD>::max())) break;
         if (FAILED(stream->InitializeFromMemory(
             const_cast<BYTE*>(png.data()), static_cast<DWORD>(png.size())))) break;
@@ -254,11 +301,12 @@ bool initializeRenderer(
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glGenerateMipmap(GL_TEXTURE_2D);
+#ifdef OMR_VERBOSE_LOGS
         std::cout << "Loaded embedded texture " << i << " ("
                   << textureWidth << "x" << textureHeight << ").\n";
+#endif
     }
 
-    // These extra PNG files are used as the random paperwork images on the clipboard.
     const std::filesystem::path textureRoot = modelPath.parent_path().parent_path() / "textures";
     std::filesystem::path clipboardDirectory = textureRoot / "Clipboard";
     if (!std::filesystem::is_directory(clipboardDirectory)) {
@@ -300,10 +348,13 @@ bool initializeRenderer(
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             glGenerateMipmap(GL_TEXTURE_2D);
             renderer.paperTextures.push_back(texture);
+            renderer.paperTextureNames.push_back(filePath.filename().string());
 #endif
         }
     }
+#ifdef OMR_VERBOSE_LOGS
     std::cout << "Loaded " << renderer.paperTextures.size() << " clipboard PNG textures.\n";
+#endif
 
     // Depth testing keeps objects behind other objects from drawing over them.
     glEnable(GL_DEPTH_TEST);
@@ -372,6 +423,7 @@ bool initializeRenderer(
         glGetUniformLocation(program, "uHasTexture");
     renderer.textureLocation =
         glGetUniformLocation(program, "uBaseTexture");
+    renderer.cameraScreenLocation = glGetUniformLocation(program, "uCameraScreen");
     return true;
 }
 
@@ -432,14 +484,42 @@ glm::mat4 clipboardModelTransform(const BoundingBox& originalBounds, float progr
     return glm::translate(model, -originalCenter);
 }
 
+namespace {
+
+const Part* findDeskPaperPart(const std::vector<Part>& parts) {
+    for (const Part& part : parts)
+        if (part.name == "Paper.001") return &part;
+    return nullptr;
+}
+
+glm::mat4 submittedPaperSlideTransform(const Part& source, const Part& deskPaper,
+                                       const glm::mat4& raisedClipboard, float progress) {
+    const float t = std::clamp(progress, 0.0f, 1.0f);
+    const float eased = t*t*(3.0f-2.0f*t);
+    const glm::vec3 start = glm::vec3(raisedClipboard * glm::vec4(source.center, 1.0f));
+    const glm::vec3 destination = deskPaper.center + glm::vec3(0.0f, 0.008f, 0.0f);
+    const float startScale = 1.85f;
+    const glm::quat raisedRotation = glm::normalize(glm::quat_cast(
+        glm::mat3(raisedClipboard) / startScale));
+    const glm::quat deskRotation(1.0f, 0.0f, 0.0f, 0.0f);
+    return glm::translate(glm::mat4(1.0f), glm::mix(start, destination, eased)) *
+           glm::mat4_cast(glm::slerp(raisedRotation, deskRotation, eased)) *
+           glm::scale(glm::mat4(1.0f), glm::vec3(glm::mix(startScale, 1.0f, eased))) *
+           glm::translate(glm::mat4(1.0f), -source.center);
+}
+
+}
+
 // Draw every model part, moving the clipboard only when it is open or animating.
 void renderFrame(
     const RendererState& renderer,
     const std::vector<Part>& parts,
     const std::vector<InteractiveObject>& interactiveObjects,
     const glm::mat4& viewProjection,
-    const GameState& gameState, int width, int height
+    const GameState& gameState, int width, int height,
+    GLuint monitorTexture
 ) {
+    const Part* deskPaper = findDeskPaperPart(parts);
     glm::mat4 clipboardModel(1.0f);
     if (gameState.clipboardViewState != ClipboardViewState::OnDesk) {
         for (const InteractiveObject& object : interactiveObjects) {
@@ -455,14 +535,18 @@ void renderFrame(
     const GLint colorLocation = renderer.colorLocation;
     const GLint texturedLocation = renderer.texturedLocation;
     const GLint textureLocation = renderer.textureLocation;
+    const GLint clockBaseLocation = glGetUniformLocation(program, "uClockBase");
+    const GLint clockCenterLocation = glGetUniformLocation(program, "uClockCenter");
+    const GLint clockRadiusLocation = glGetUniformLocation(program, "uClockRadius");
 
     glViewport(0, 0, width, height);
 
-    // Flash the background and the room surfaces when the alarm is active.
+    // --- FEATURE #1: FLASH BACKGROUND RED IF ALARM IS ACTIVE ---
     if (gameState.alarmActive) {
-        const float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
+        float redPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
         glClearColor(redPulse, 0.10f, 0.10f, 1.0f);
-    } else {
+    }
+    else {
         glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
     }
 
@@ -477,13 +561,11 @@ void renderFrame(
         glm::value_ptr(viewProjection)
     );
 
-    // Send the alarm intensity to the shader so the 3D room flashes red.
     const GLint alarmActiveLocation = glGetUniformLocation(program, "uAlarmActive");
     const GLint alarmPulseLocation = glGetUniformLocation(program, "uAlarmPulse");
     const float alarmPulse = 0.5f + 0.5f * std::sin(static_cast<float>(glfwGetTime()) * 10.0f);
     glUniform1i(alarmActiveLocation, gameState.alarmActive ? 1 : 0);
     glUniform1f(alarmPulseLocation, alarmPulse);
-
     glActiveTexture(GL_TEXTURE0);
     glUniform1i(textureLocation, 0);
     glBindVertexArray(vao);
@@ -535,10 +617,21 @@ void renderFrame(
         if (isOverlayText(part.name) && part.name != visibleTextName) {
             continue;
         }
+        if (part.isClipboardPaper && !gameState.paperSliding &&
+            gameState.activePaperIndex >= gameState.paperSheets.size()) {
+            continue;
+        }
 
         glm::mat4 model = animatedClipboard ? clipboardModel : glm::mat4(1.0f);
+        if (part.isClipboardPaper && gameState.paperSliding && deskPaper) {
+            model = submittedPaperSlideTransform(part, *deskPaper, clipboardModel,
+                                                  gameState.paperSlideProgress);
+        }
         if (isOverlayText(part.name) && textPartCount > 0) {
             model = textModel;
+        }
+        if (part.name == "ClockHour" || part.name == "ClockMinute") {
+            model = clockHandTransform(part, gameState, part.name == "ClockHour");
         }
 
         glUniformMatrix4fv(
@@ -563,11 +656,57 @@ void renderFrame(
             texture = renderer.paperTextures[gameState.selectedPaperTexture];
         }
 
+        const bool isCameraScreen =
+            (part.name == "CameraScreen" || part.interactiveName == "CameraScreen") && monitorTexture != 0;
+        if (isCameraScreen) texture = monitorTexture;
         glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(renderer.cameraScreenLocation, isCameraScreen ? 1 : 0);
         glUniform1i(texturedLocation, texture != 0 ? 1 : 0);
         glUniform1i(renderer.paperOverrideLocation, overridePaper ? 1 : 0);
-        glUniform3fv(colorLocation, 1, glm::value_ptr(part.color));
+        int checkedMask = 0;
+        int stampMode = 0;
+        if (overridePaper && gameState.activePaperIndex < gameState.paperSheets.size()) {
+            const PaperSheet& sheet = gameState.paperSheets[gameState.activePaperIndex];
+            checkedMask = static_cast<int>(sheet.checkedMask);
+            stampMode = sheet.stamped ? 2 : 1;
+        }
+        glUniform1i(glGetUniformLocation(program, "uPaperCheckedMask"), checkedMask);
+        glUniform1i(glGetUniformLocation(program, "uPaperStampMode"), stampMode);
+        glUniform1i(clockBaseLocation, part.name == "ClockBase" ? 1 : 0);
+        if (part.name == "ClockBase") {
+            glUniform2f(clockCenterLocation, part.center.x, part.center.y);
+            glUniform1f(clockRadiusLocation, 0.5f * part.modelWidth);
+        }
+        const glm::vec3 handColor = part.name == "ClockHour"
+            ? glm::vec3(0.98f, 0.93f, 0.78f)
+            : part.name == "ClockMinute"
+                ? glm::vec3(0.96f, 0.85f, 0.63f)
+                : part.color;
+        glUniform3fv(colorLocation, 1, glm::value_ptr(handColor));
         glDrawArrays(GL_TRIANGLES, part.first, part.count);
+    }
+
+    if (deskPaper) {
+        glUniform1i(clockBaseLocation, 0);
+        const GLint checkedLocation = glGetUniformLocation(program, "uPaperCheckedMask");
+        const GLint stampLocation = glGetUniformLocation(program, "uPaperStampMode");
+        for (std::size_t i = 0; i < gameState.paperSheets.size(); ++i) {
+            const PaperSheet& sheet = gameState.paperSheets[i];
+            if (!sheet.stamped || (gameState.paperSliding && i == gameState.activePaperIndex) ||
+                sheet.textureIndex < 0 ||
+                static_cast<std::size_t>(sheet.textureIndex) >= renderer.paperTextures.size()) continue;
+            const glm::mat4 tableTransform = glm::translate(glm::mat4(1.0f),
+                                            glm::vec3(0.0f, 0.003f * static_cast<float>(i+1), 0.0f));
+            glUniformMatrix4fv(renderer.modelLocation, 1, GL_FALSE, glm::value_ptr(tableTransform));
+            glBindTexture(GL_TEXTURE_2D, renderer.paperTextures[sheet.textureIndex]);
+            glUniform1i(renderer.cameraScreenLocation, 0);
+            glUniform1i(renderer.texturedLocation, 1);
+            glUniform1i(renderer.paperOverrideLocation, 1);
+            glUniform1i(checkedLocation, static_cast<int>(sheet.checkedMask));
+            glUniform1i(stampLocation, 2);
+            glUniform3fv(colorLocation, 1, glm::value_ptr(deskPaper->color));
+            glDrawArrays(GL_TRIANGLES, deskPaper->first, deskPaper->count);
+        }
     }
 }
 
@@ -588,4 +727,39 @@ void destroyRenderer(const RendererState& renderer) {
     glDeleteBuffers(1, &vbo);
     glDeleteVertexArrays(1, &vao);
     glDeleteProgram(program);
+}
+void renderRestaurantScene(
+    const RendererState& renderer,
+    const std::vector<Part>& restaurantParts,
+    const glm::mat4& cameraViewProjection,
+    int width, int height
+) {
+    glViewport(0, 0, width, height);
+    glEnable(GL_DEPTH_TEST);
+    glClearColor(0.10f, 0.13f, 0.17f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(renderer.program);
+    glUniform1i(glGetUniformLocation(renderer.program, "uAlarmActive"), 0);
+    glUniformMatrix4fv(renderer.viewProjectionLocation, 1, GL_FALSE,
+                       glm::value_ptr(cameraViewProjection));
+    glUniformMatrix4fv(renderer.modelLocation, 1, GL_FALSE,
+                       glm::value_ptr(glm::mat4(1.0f)));
+    glUniform1i(renderer.cameraScreenLocation, 0);
+    glUniform1i(renderer.paperOverrideLocation, 0);
+    glUniform1i(glGetUniformLocation(renderer.program, "uClockBase"), 0);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(renderer.textureLocation, 0);
+    glBindVertexArray(renderer.vao);
+    for (const Part& part : restaurantParts) {
+        GLuint texture = 0;
+        if (part.baseColorTextureIndex >= 0 &&
+            static_cast<size_t>(part.baseColorTextureIndex) < renderer.textures.size()) {
+            texture = renderer.textures[part.baseColorTextureIndex];
+        }
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(renderer.texturedLocation, texture ? 1 : 0);
+        glUniform3fv(renderer.colorLocation, 1, glm::value_ptr(part.color));
+        glDrawArrays(GL_TRIANGLES, part.first, part.count);
+    }
+    glBindVertexArray(0);
 }

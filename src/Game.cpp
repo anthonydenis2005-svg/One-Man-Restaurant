@@ -1,16 +1,123 @@
 #include "Game.h"
 #include "Camera.h"
+#include "Paperwork.h"
 
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <iostream>
-#include <random>
+
+// Clamps happiness and triggers game over if it drops to 0 or below.
+void finalizeHappinessCheck(GameState& state, const char* reason) {
+    if (state.customerHappiness <= 0.0f) {
+        state.gameOver = true;
+        if (reason) {
+            std::cout << "[GAME OVER] " << reason << "\n";
+        }
+    }
+}
+
+// Continuous happiness drain over time (rate = happiness lost per second).
+void applyHappinessDrain(GameState& state, float deltaTime, float drainPerSecond, const char* reason) {
+    if (state.gameOver || drainPerSecond <= 0.0f) return;
+    state.customerHappiness -= drainPerSecond * deltaTime;
+    finalizeHappinessCheck(state, reason);
+}
+
+// Flat happiness change (negative delta = penalty) or immediate game over.
+void applyHappinessDelta(GameState& state, float delta, bool instantGameOver, const char* reason) {
+    if (state.gameOver) return;
+    if (instantGameOver) {
+        state.customerHappiness = 0.0f;
+        state.gameOver = true;
+        if (reason) {
+            std::cout << "[GAME OVER] " << reason << "\n";
+        }
+        return;
+    }
+    state.customerHappiness = std::min(100.0f, state.customerHappiness + delta);
+    finalizeHappinessCheck(state, reason);
+}
+
+// Applies -1% per customer served if the beer tap is off.
+void onCustomerServed(GameState& state) {
+    if (state.gameOver) return;
+    if (state.customers.beerTapOff) {
+        applyHappinessDelta(state, -1.0f, false, "Served customer with beer tap off!");
+    }
+}
+
+// Evaluates active customer states, sprinklers, AC, breaker, and Day 4+ rush hour.
+void updateCustomerStates(GameState& state, float deltaTime) {
+    if (state.gameOver) return;
+
+    CustomerState& c = state.customers;
+    c.rushHourActive = (state.currentDay >= 4);
+
+
+    // Fire alarm activates sprinklers if not already on.
+    if (state.alarmActive) {
+        c.sprinklersActive = true;
+    }
+
+    // Air conditioning penalty scales weakly-to-moderately with distance from comfortTemp.
+    float tempDiff = std::abs(c.roomTemp - c.comfortTemp);
+    if (tempDiff > 0.5f) {
+        float acDrain = std::min(4.0f, tempDiff * 0.35f);
+        applyHappinessDrain(state, deltaTime, acDrain, "Room temperature ruined satisfaction!");
+    }
+
+    // Soda Hog: drains soda over time unless sprinklers are active.
+    if (c.sodaHogActive) {
+        c.sodaHogTimer += deltaTime;
+        if (!c.sprinklersActive) {
+            float sodaDrain = c.rushHourActive ? 2.5f : 1.5f;
+            applyHappinessDrain(state, deltaTime, sodaDrain, "Soda Hog drained too much soda!");
+        }
+    }
+
+    // Smelly customer in line: -5%/sec until they leave, 0% if washed by sprinklers.
+    if (c.smellyCustomerActive) {
+        c.smellyCustomerTimer += deltaTime;
+        if (!c.smellyCustomerWashed && c.sprinklersActive) {
+            c.smellyCustomerWashed = true;
+            std::cout << "[CUSTOMER] Sprinklers washed the smelly customer!\n";
+        }
+        if (!c.smellyCustomerWashed) {
+            applyHappinessDrain(state, deltaTime, 5.0f, "Smelly customer in line tanked happiness!");
+        }
+        if (c.smellyCustomerTimer >= 12.0f) {
+            c.smellyCustomerActive = false;
+            c.smellyCustomerWashed = false;
+            c.smellyCustomerTimer = 0.0f;
+        }
+    }
+
+    // Kid with fork in outlet: counts down; if he dies before breaker is turned off, -100% / game over.
+    if (c.kidWithForkActive) {
+        c.kidWithForkTimer += deltaTime;
+        if (c.breakerOff) {
+            c.kidWithForkActive = false;
+            c.kidWithForkTimer = 0.0f;
+            std::cout << "[SAFE] Breaker turned off in time—kid with fork stopped!\n";
+        }
+        else if (c.kidWithForkTimer >= 8.0f) {
+            c.kidWithForkActive = false;
+            applyHappinessDelta(state, -100.0f, true, "Kid with fork in outlet was harmed (-100%)!");
+        }
+    }
+
+    // Old man throwing teeth: instant -5% hit when triggered.
+    if (c.oldManTeethTriggered) {
+        c.oldManTeethTriggered = false;
+        applyHappinessDelta(state, -5.0f, false, "Old man threw his teeth (-5%)!");
+    }
+}
 
 namespace {
 
-// Only the active simulation can lose happiness.
 void applyHappinessPenalty(GameState& state, float deltaTime, float drainRate) {
     if (state.gameOver || state.shiftCompleted) return;
     state.customerHappiness = std::max(0.0f, state.customerHappiness - drainRate * deltaTime);
@@ -20,56 +127,36 @@ void applyHappinessPenalty(GameState& state, float deltaTime, float drainRate) {
     }
 }
 
-} // namespace
+}
 
-// The alarm created by the timed event is the same alarm that the player clears
-// by clicking the FireAlarmBox in the 3D office or pressing E.
+// Function to toggle the fire alarm state and reset its duration, printing a message to the console. (YAY)
+//Flips the state.alarmActive (switching it on or off)
+// and resets the state.alarmDuration to 0.0f.
+// It also prints a message to the console indicating whether the fire alarm has been triggered or turned off.
 void toggleAlarm(GameState& state) {
     if (state.gameOver || state.shiftCompleted) return;
     state.alarmActive = !state.alarmActive;
     state.alarmDuration = 0.0f;
-    state.alarmTimer = 0.0f; // Always wait for another alarm cycle after clearing one.
+    state.alarmTimer = 0.0f;
     std::cout << (state.alarmActive
         ? "[ALARM] Fire alarm triggered! Press E or click the fire alarm to turn it off.\n"
         : "[ALARM] Fire alarm turned off.\n");
 }
 
-void completePaperworkTask(GameState& state, int taskIndex) {
-    if (!state.paperworkActive || state.gameOver || state.shiftCompleted) return;
-
-    if (taskIndex == 1 && !state.payrollCompleted) {
-        state.payrollCompleted = true;
-        std::cout << "[PAPERWORK] Employee Payroll completed!\n";
-    } else if (taskIndex == 2 && !state.safetyCheckCompleted) {
-        state.safetyCheckCompleted = true;
-        std::cout << "[PAPERWORK] Safety Check completed!\n";
-    } else if (taskIndex == 3 && !state.inventoryChecked) {
-        state.inventoryChecked = true;
-        std::cout << "[PAPERWORK] Inventory Check completed!\n";
-    }
-
-    if (state.payrollCompleted && state.safetyCheckCompleted && state.inventoryChecked) {
-        state.paperworkActive = false;
-        state.paperworkDuration = 0.0f;
-        state.paperworkTimer = 0.0f;
-        std::cout << "[PAPERWORK] All tasks completed successfully! Task cleared.\n";
-    }
-}
-
+// Start raising the clipboard when the player clicks its bounding box.
 void openClipboard(GameState& state, CameraState& camera, std::size_t paperTextureCount) {
     if (state.clipboardViewState != ClipboardViewState::OnDesk) return;
+    // Lock camera movement so the clipboard stays in the same view while it is open.
     resetCameraDirection(camera);
     camera.locked = true;
     state.clipboardViewState = ClipboardViewState::Raising;
     state.clipboardProgress = 0.0f;
-    state.selectedPaperTexture = -1;
-    if (paperTextureCount > 0) {
-        static std::mt19937 generator(std::random_device{}());
-        std::uniform_int_distribution<int> distribution(0, static_cast<int>(paperTextureCount) - 1);
-        state.selectedPaperTexture = distribution(generator);
-    }
+    const PaperSheet* sheet = currentPaperSheet(state);
+    state.selectedPaperTexture = sheet ? sheet->textureIndex : -1;
+    (void)paperTextureCount;
 }
 
+// This starts the reverse animation instead of moving the clipboard instantly.
 void closeClipboard(GameState& state) {
     if (state.clipboardViewState == ClipboardViewState::Raising ||
         state.clipboardViewState == ClipboardViewState::Raised) {
@@ -77,8 +164,9 @@ void closeClipboard(GameState& state) {
     }
 }
 
+// Update the clipboard animation and the restaurant events every frame.
 void updateGame(GameState& state, GLFWwindow* window, float deltaTime, double currentTime) {
-    // Clipboard animation uses the 3D transform in Renderer.cpp.
+    // Raising takes 0.28 seconds and lowering takes 0.24 seconds.
     if (state.clipboardViewState == ClipboardViewState::Raising) {
         state.clipboardProgress = std::min(1.0f, state.clipboardProgress + deltaTime / 0.28f);
         if (state.clipboardProgress >= 1.0f)
@@ -91,7 +179,6 @@ void updateGame(GameState& state, GLFWwindow* window, float deltaTime, double cu
 
     if (state.gameOver || state.shiftCompleted || state.isPaused) return;
 
-    // Reaching the end of the shift is a terminal win state.
     if (state.shiftTimer > 0.0f) {
         state.shiftTimer -= deltaTime;
         if (state.shiftTimer <= 0.0f) {
@@ -102,11 +189,11 @@ void updateGame(GameState& state, GLFWwindow* window, float deltaTime, double cu
         }
     }
 
-    // Timed fire alarm. Timer does not build up while the alarm is already active.
+    // --- FEATURE #1:Random alamr trigger and key resolution using "E"
+    // Check for a possible new alarm after 15 seconds without one being active. added function utilization for toggling the alarm state and resetting its duration
     if (!state.alarmActive) {
         state.alarmTimer += deltaTime;
         if (state.alarmTimer > 15.0f) {
-            // Keep Jaylena's original approximate 50% trigger check each cycle.
             if (static_cast<int>(currentTime) % 2 == 0) {
                 toggleAlarm(state);
             } else {
@@ -119,45 +206,20 @@ void updateGame(GameState& state, GLFWwindow* window, float deltaTime, double cu
             applyHappinessPenalty(state, deltaTime, 2.5f);
     }
 
-    // Timed paperwork. A new batch starts only after the previous one was cleared.
-    if (!state.paperworkActive) {
-        state.paperworkTimer += deltaTime;
-        if (state.paperworkTimer > 22.0f) {
-            state.paperworkActive = true;
-            state.paperworkDuration = 0.0f;
-            state.payrollCompleted = false;
-            state.safetyCheckCompleted = false;
-            state.inventoryChecked = false;
-            state.paperworkTimer = 0.0f;
-            std::cout << "[PAPERWORK] New tasks arrived! Press 1, 2, and 3.\n";
-        }
-    } else {
-        state.paperworkDuration += deltaTime;
-        if (state.paperworkDuration > 10.0f)
-            applyHappinessPenalty(state, deltaTime, 1.5f);
-    }
 
-    // Detect fresh key presses, not a key held for multiple frames.
-    static bool prior1 = false, prior2 = false, prior3 = false, priorE = false;
-    const bool key1 = glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS;
-    const bool key2 = glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS;
-    const bool key3 = glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS;
+    // Run customer & restaurant conditions while the shift is active
+    updateCustomerStates(state, deltaTime);
+
+    // Toggle alarm off using 'E' key calling the modular function
+    static bool priorE = false;
     const bool keyE = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS;
-
-    if (state.paperworkActive) {
-        if (key1 && !prior1) completePaperworkTask(state, 1);
-        if (key2 && !prior2) completePaperworkTask(state, 2);
-        if (key3 && !prior3) completePaperworkTask(state, 3);
-    }
     if (keyE && !priorE && state.alarmActive) toggleAlarm(state);
-
-    prior1 = key1;
-    prior2 = key2;
-    prior3 = key3;
     priorE = keyE;
 }
 
+// The window title shows the shift time, happiness, pending tasks, and alarm warning.
 void updateWindowTitle(GLFWwindow* window, const GameState& state) {
+    // --- FEATURE #1: the window title with timer and happiness
     char title[256];
     if (state.isPaused) {
         std::snprintf(title, sizeof(title), "One Man Restaurant | PAUSED - Press P to Resume");
@@ -167,17 +229,18 @@ void updateWindowTitle(GLFWwindow* window, const GameState& state) {
         std::snprintf(title, sizeof(title), "One Man Restaurant | GAME OVER! Press R to Restart");
     } else {
         std::snprintf(title, sizeof(title),
-            "One Man Restaurant | Day %d | Time %.1fs | Happy %.1f%% | PW %s%s%s %s",
+            "One Man Restaurant | Day %d | Time %.1fs | Happy %.1f%% | Papers %zu/%zu %s",
             state.currentDay, state.shiftTimer, state.customerHappiness,
-            state.paperworkActive ? (state.payrollCompleted ? "[P]" : "[ ]") : "",
-            state.paperworkActive ? (state.safetyCheckCompleted ? "[S]" : "[ ]") : "",
-            state.paperworkActive ? (state.inventoryChecked ? "[I]" : "[ ]") : "",
+            state.activePaperIndex, state.paperSheets.size(),
             state.alarmActive ? "[FIRE ALARM - E / Click]" : "");
     }
     glfwSetWindowTitle(window, title);
 }
 
 void resetGame(GameState& state) {
+    const auto assignedSheets = state.paperSheets;
     state = GameState{};
+    state.paperSheets = assignedSheets;
+    restartDailyPaperwork(state);
     std::cout << "[GAME] Game state fully reset, all tasks cleared.\n";
 }

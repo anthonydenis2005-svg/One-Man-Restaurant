@@ -12,8 +12,14 @@ add_executable(OneManRestaurant
     src/Game.cpp
     src/Camera.cpp
     src/Renderer.cpp
+    src/SecurityCamera.cpp
+    src/Paperwork.cpp
+    src/ShiftClock.cpp
+    src/ScreenUI.cpp
+    src/UIController.cpp
     src/ModelLoader.cpp
     src/Input.cpp
+    src/Audio.cpp
 )
 target_include_directories(OneManRestaurant PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(OneManRestaurant PRIVATE cxx_std_17)
@@ -24,8 +30,21 @@ target_link_libraries(OneManRestaurant PRIVATE
         assimp::assimp
 )
 
+add_custom_command(TARGET OneManRestaurant POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:OneManRestaurant>/assets
+)
+
 if(WIN32)
     target_link_libraries(OneManRestaurant PRIVATE windowscodecs ole32)
+    target_link_libraries(OneManRestaurant PRIVATE gdi32)
+elseif(APPLE)
+    target_link_libraries(OneManRestaurant PRIVATE
+        "-framework CoreFoundation"
+        "-framework CoreAudio"
+        "-framework AudioToolbox"
+    )
 endif()
 
 if(MSVC)
