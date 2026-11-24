@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "Audio.h"
 #include "Game.h"
 #include "GameState.h"
 #include "Input.h"
@@ -61,7 +62,7 @@ int main() {
     GLFWwindow* window = glfwCreateWindow(
         1280,
         720,
-        "One Man Restaurant - Office",
+        "One Man Restaurant",
         nullptr,
         nullptr
     );
@@ -133,15 +134,14 @@ int main() {
     // Initializing the game state and for the time tracking before the main loop
     GameState gameState;
     assignDailyPaperwork(gameState, renderer.paperTextureNames);
+    AudioState audio;
+    initializeAudio(audio);
     double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
         prepareUIInput(uiController, gameState, camera);
         glfwPollEvents();
 
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            glfwSetWindowShouldClose(window, GLFW_TRUE);
-        }
         processUIInput(uiController, gameState, camera, securityCamera, window);
 
         // --- FEATURE #1:Update delata time and shift timer
@@ -241,12 +241,13 @@ int main() {
         renderFrame(renderer, parts, interactiveObjects, viewProjection, gameState,
                     width, height, securityCamera.texture());
         renderUIController(uiController, gameState, window, width, height);
-        updateWindowTitle(window, gameState);
+        syncLoopingAudio(audio, gameState);
 
         glfwSwapBuffers(window);
     }
     securityCamera.destroy();
     destroyUIController(uiController);
+    shutdownAudio(audio);
     destroyRenderer(renderer);
 
     glfwDestroyWindow(window);

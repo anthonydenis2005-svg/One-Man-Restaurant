@@ -62,7 +62,9 @@ int slotFromPaperUV(const glm::vec2& uv) {
 
 void assignDailyPaperwork(GameState& state, const std::vector<std::string>& pngFilenames) {
     state.paperSheets.clear();
-    for (std::size_t i = 0; i < pngFilenames.size(); ++i) {
+    constexpr std::size_t sheetCount = 4;
+    for (std::size_t i = 0; i < pngFilenames.size() &&
+                            state.paperSheets.size() < sheetCount; ++i) {
         const unsigned int requiredMask = maskFromFilename(pngFilenames[i]);
         if (!requiredMask) {
             std::cerr << "Skipping paperwork image without a trailing 1-9 checkbox suffix: "
@@ -74,6 +76,10 @@ void assignDailyPaperwork(GameState& state, const std::vector<std::string>& pngF
         sheet.textureIndex = static_cast<int>(i);
         sheet.requiredMask = requiredMask;
         state.paperSheets.push_back(sheet);
+    }
+    const std::size_t uniqueSheets = state.paperSheets.size();
+    while (uniqueSheets > 0 && state.paperSheets.size() < sheetCount) {
+        state.paperSheets.push_back(state.paperSheets[state.paperSheets.size() % uniqueSheets]);
     }
     restartDailyPaperwork(state);
 }
