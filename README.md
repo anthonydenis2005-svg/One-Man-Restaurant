@@ -152,4 +152,17 @@ Jaylena Burgos:
 ## Generative AI Use
 
 ChatGPT was used during development for C++/OpenGL implementation guidance, troubleshooting and debugging.
+Ai was utilized for guiding how to work with the Audio to function properly giving a list of what not to overlook: 
+prompt: What is the best implementation strategy, specifically how to handle overlapping sounds and potential volume controls. to implement into a game dev project
+Response:Using miniaudio—the audio library already integrated in the project—is a strong, practical approach for implementing sound in One Man Restaurant. It handles both overlapping sound effects and clean volume control without adding heavy external dependencies.
+
+Why miniaudio Works Well for This Setup
+Overlapping Sound Effects: Using a central audio engine (ma_engine) with fire-and-forget playback (ma_engine_play_sound) lets short cues—like paperwork actions, clipboard movement, penalties, or alerts—trigger repeatedly and overlap naturally without cutting off an active sound or blocking the main game loop.
+
+Separate Looping & State Control: Dedicated sound instances (ma_sound) with looping enabled work well for continuous audio such as office ambience, fire alarms, or sprinklers, allowing each loop to start, stop, and update cleanly alongside game state and pause checks.
+
+Centralized & Per-Sound Volume: miniaudio supports adjusting overall engine gain for a master volume control while letting individual sounds or categories use scaled levels so background ambience or alarms do not overpower quick feedback cues.
+
+Lean Project Fit: Because it is a single-header library already wired into the build and Audio.h / Audio.cpp structure, it keeps the C++ and OpenGL loop lightweight while leaving room to add more sound effects later.
+Feedback on AI: This helped give a general idea with how to utilize and work with the audio to integrate into the project
 
