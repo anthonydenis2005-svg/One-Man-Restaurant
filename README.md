@@ -132,9 +132,9 @@ Phase 2:https://www.youtube.com/watch?v=_5OshY-bocg&feature=youtu.be
 ## Contributions
 
 Anthony Denis:
--restaurant model was completed and connected with the office computer with the cameras.
--player movement updated to look around and added a customer satisfaction on screen
--Clipboard was finalized, pause menu added along with the clock 
+- restaurant model was completed and connected with the office computer with the cameras.
+- player movement updated to look around and added a customer satisfaction on screen
+- Clipboard was finalized, pause menu added along with the clock 
 Jaylena Burgos: 
 - Integrating the Audio system and added office background audio along with alarm sound to go off when ringing
 - Core game state was updated to incudle all player models that will be utilized in Phase 3, and Alarm handeling with how it works with the audio
